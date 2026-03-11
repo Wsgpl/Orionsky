@@ -1,14 +1,27 @@
 import axios, { AxiosInstance, AxiosError } from "axios";
 import {
   AircraftListResponse,
-  ConflictResponse,
-  PredictedConflictResponse,
   WeatherGridResponse,
   WeatherAdvisoryResponse,
   SnapshotResponse,
 } from "../types";
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+function resolveApiBaseUrl(): string {
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    return window.location.origin;
+  }
+
+  return "http://localhost:8000";
+}
+
+const BASE_URL = resolveApiBaseUrl();
+const API_KEY = import.meta.env.VITE_API_KEY || null;
+const AUTH_USERNAME = import.meta.env.VITE_AUTH_USERNAME || null;
+const AUTH_PASSWORD = import.meta.env.VITE_AUTH_PASSWORD || null;
 
 class ApiService {
   private client: AxiosInstance;
@@ -24,7 +37,12 @@ class ApiService {
 
     // Attach token to every request
     this.client.interceptors.request.use((config) => {
-      if (this.token) config.headers.Authorization = `Bearer ${this.token}`;
+      if (API_KEY) {
+        config.headers["X-API-Key"] = API_KEY;
+      }
+      if (this.token) {
+        config.headers.Authorization = `Bearer ${this.token}`;
+      }
       return config;
     });
 
@@ -32,7 +50,13 @@ class ApiService {
     this.client.interceptors.response.use(
       (res) => res,
       async (err: AxiosError) => {
-        if (err.response?.status === 401 && !this.loginPromise) {
+        if (
+          err.response?.status === 401 &&
+          !API_KEY &&
+          AUTH_USERNAME &&
+          AUTH_PASSWORD &&
+          !this.loginPromise
+        ) {
           await this.login();
           return this.client.request(err.config!);
         }
@@ -42,12 +66,15 @@ class ApiService {
   }
 
   async login(): Promise<void> {
+    if (!AUTH_USERNAME || !AUTH_PASSWORD) {
+      return;
+    }
     if (this.loginPromise) return this.loginPromise;
     this.loginPromise = (async () => {
       try {
         const res = await axios.post(`${BASE_URL}/api/v1/auth/token`, {
-          username: "admin",
-          password: "secret",
+          username: AUTH_USERNAME,
+          password: AUTH_PASSWORD,
         });
         this.token = res.data.access_token;
       } catch (e) {
@@ -63,16 +90,6 @@ class ApiService {
 
   async getAircraft(): Promise<AircraftListResponse> {
     const res = await this.client.get<AircraftListResponse>("/api/v1/aircraft");
-    return res.data;
-  }
-
-  async getConflicts(): Promise<ConflictResponse> {
-    const res = await this.client.get<ConflictResponse>("/api/v1/conflicts");
-    return res.data;
-  }
-
-  async getPredictedConflicts(): Promise<PredictedConflictResponse> {
-    const res = await this.client.get<PredictedConflictResponse>("/api/v1/conflicts/predicted");
     return res.data;
   }
 

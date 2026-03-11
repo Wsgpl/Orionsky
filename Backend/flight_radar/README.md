@@ -11,7 +11,7 @@ app/
 ├── schemas/        # Pydantic I/O models
 ├── services/       # Business logic orchestration (Redis ↔ engines)
 ├── engines/        # Pure-logic: conflict detection, movement, advisories
-├── ingestion/      # External API clients: OpenSky, OpenWeather + circuit breakers
+├── ingestion/      # External API clients: OpenSky/ADSB.lol/ICAO + OpenWeather/AviationWeather
 ├── cache/          # Redis abstraction layer
 ├── middleware/     # Request tracking, rate limiting, exception handling
 └── workers/        # Async background ingestion loops
@@ -24,7 +24,7 @@ app/
 ```bash
 # 1. Copy and configure environment
 cp .env.example .env
-# Edit .env — set SECRET_KEY and OPENWEATHER_API_KEY
+# Edit .env — set SECRET_KEY, and weather source credentials
 # Optional for non-demo auth: AUTH_PASSWORD_HASH
 
 # 2. Start Redis
@@ -44,7 +44,7 @@ Visit: http://localhost:8000/docs
 
 ```bash
 cp .env.example .env
-# Set SECRET_KEY and OPENWEATHER_API_KEY in .env
+# Set SECRET_KEY and weather source credentials in .env
 # Optional for non-demo auth: AUTH_PASSWORD_HASH
 
 docker-compose up -d
@@ -73,7 +73,9 @@ export SECRET_KEY=<generated above>
 export AUTH_USERNAME=<admin-username>
 export AUTH_PASSWORD_HASH=<bcrypt-hash>
 export CORS_ALLOWED_ORIGINS=<https://your-frontend-domain>
-export OPENWEATHER_API_KEY=<your key>
+export WEATHER_SOURCE=<openweather|aviationweather|icao>
+export OPENWEATHER_API_KEY=<your key if WEATHER_SOURCE=openweather>
+export ICAO_WEATHER_URL=<url if WEATHER_SOURCE=icao>
 export REDIS_HOST=<your redis host>
 export REDIS_PASSWORD=<your redis password>
 
@@ -84,7 +86,9 @@ docker run -d \
   -e AUTH_USERNAME=$AUTH_USERNAME \
   -e AUTH_PASSWORD_HASH=$AUTH_PASSWORD_HASH \
   -e CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS \
+  -e WEATHER_SOURCE=$WEATHER_SOURCE \
   -e OPENWEATHER_API_KEY=$OPENWEATHER_API_KEY \
+  -e ICAO_WEATHER_URL=$ICAO_WEATHER_URL \
   -e REDIS_HOST=$REDIS_HOST \
   -e REDIS_PASSWORD=$REDIS_PASSWORD \
   -p 8000:8000 \
@@ -99,7 +103,13 @@ docker run -d \
 | `SECRET_KEY` | ✅ | JWT signing secret (≥32 chars). Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
 | `AUTH_USERNAME` | ✅ | Login username for `/api/v1/auth/token` |
 | `AUTH_PASSWORD_HASH` | ✅ (production) | bcrypt hash for `AUTH_USERNAME` password. Generate via `make auth-hash` |
-| `OPENWEATHER_API_KEY` | ✅ | OpenWeatherMap API key from https://openweathermap.org/api |
+| `AIRCRAFT_SOURCES` | | Comma-separated aircraft feeds: `opensky,adsblol,icao` (default: `opensky`) |
+| `WEATHER_SOURCE` | | Weather provider: `openweather` / `aviationweather` / `icao` |
+| `OPENWEATHER_API_KEY` | ✅ when `WEATHER_SOURCE=openweather` | OpenWeatherMap API key from https://openweathermap.org/api |
+| `AVIATIONWEATHER_BASE_URL` | | AviationWeather.gov METAR API URL |
+| `ICAO_AIRCRAFT_URL` | ✅ when `AIRCRAFT_SOURCES` includes `icao` | ICAO aircraft endpoint URL |
+| `ICAO_WEATHER_URL` | ✅ when `WEATHER_SOURCE=icao` | ICAO weather endpoint URL |
+| `ICAO_API_KEY` | | ICAO API bearer token |
 | `CORS_ALLOWED_ORIGINS` | ✅ (production web) | Comma-separated frontend domains allowed by browser CORS |
 | `REDIS_HOST` | | Redis hostname (default: `redis`) |
 | `REDIS_PORT` | | Redis port (default: `6379`) |
@@ -120,6 +130,11 @@ Generate a password hash for production:
 make auth-hash
 ```
 
+Run launch preflight checks before public deployment:
+```bash
+make preflight
+```
+
 ## API Endpoints
 
 All endpoints (except `/health/*`, `/metrics`, `/docs`) require a Bearer JWT.
@@ -132,12 +147,6 @@ POST /api/v1/auth/token        — Obtain JWT (configured via AUTH_USERNAME/AUTH
 ### Aircraft
 ```
 GET  /api/v1/aircraft          — All tracked aircraft
-```
-
-### Conflicts
-```
-GET  /api/v1/conflicts         — Current separation violations
-GET  /api/v1/conflicts/predicted — Predicted violations (10-min lookahead)
 ```
 
 ### Weather
@@ -188,4 +197,8 @@ Current state is visible at `GET /health/ready`.
 | Circuit | Default threshold | Recovery timeout |
 |---|---|---|
 | OpenSky | 5 failures | 60 seconds |
+| ADSB.lol | 5 failures | 60 seconds |
+| ICAO aircraft | 5 failures | 60 seconds |
 | OpenWeather | 5 failures | 120 seconds |
+| AviationWeather.gov | 5 failures | 120 seconds |
+| ICAO weather | 5 failures | 60 seconds |

@@ -1,8 +1,6 @@
 import { create } from "zustand";
 import {
   Aircraft,
-  Conflict,
-  PredictedConflict,
   WeatherCell,
   WeatherAdvisory,
   WeatherMode,
@@ -11,81 +9,53 @@ import {
 } from "../types";
 
 interface AppState {
-  // ── Aircraft ──────────────────────────────────────────────────────────────
   aircraft: Aircraft[];
   setAircraft: (aircraft: Aircraft[]) => void;
   aircraftMap: Map<string, Aircraft>;
 
-  // ── Selection ─────────────────────────────────────────────────────────────
   selectedIcao: string | null;
   setSelectedIcao: (icao: string | null) => void;
   selectedAircraft: Aircraft | null;
 
-  // ── Conflicts ─────────────────────────────────────────────────────────────
-  conflicts: Conflict[];
-  predictedConflicts: PredictedConflict[];
-  setConflicts: (c: Conflict[]) => void;
-  setPredictedConflicts: (c: PredictedConflict[]) => void;
-  conflictIcaos: Set<string>;
-
-  // ── Weather ───────────────────────────────────────────────────────────────
   weatherCells: WeatherCell[];
   setWeatherCells: (cells: WeatherCell[]) => void;
   weatherAdvisories: WeatherAdvisory[];
-  setWeatherAdvisories: (a: WeatherAdvisory[]) => void;
+  setWeatherAdvisories: (advisories: WeatherAdvisory[]) => void;
   activeWeatherMode: WeatherMode;
   setWeatherMode: (mode: WeatherMode) => void;
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
   theme: Theme;
   setTheme: (theme: Theme) => void;
   manualTheme: boolean;
-  setManualTheme: (v: boolean) => void;
+  setManualTheme: (value: boolean) => void;
 
-  // ── UI ────────────────────────────────────────────────────────────────────
   drawerOpen: boolean;
-  setDrawerOpen: (v: boolean) => void;
+  setDrawerOpen: (value: boolean) => void;
   isLoading: boolean;
-  setLoading: (v: boolean) => void;
+  setLoading: (value: boolean) => void;
   lastUpdated: Date | null;
-  setLastUpdated: (d: Date) => void;
+  setLastUpdated: (value: Date) => void;
   connectionStatus: ConnectionStatus;
-  setConnectionStatus: (s: ConnectionStatus) => void;
-  showConflictPanel: boolean;
-  setShowConflictPanel: (v: boolean) => void;
+  setConnectionStatus: (status: ConnectionStatus) => void;
 }
 
 export const useStore = create<AppState>((set, get) => ({
-  // ── Aircraft ──────────────────────────────────────────────────────────────
   aircraft: [],
   aircraftMap: new Map(),
   setAircraft: (aircraft) => {
-    const aircraftMap = new Map(aircraft.map((a) => [a.icao, a]));
+    const aircraftMap = new Map(aircraft.map((item) => [item.icao, item]));
     const selectedIcao = get().selectedIcao;
     const selectedAircraft = selectedIcao ? (aircraftMap.get(selectedIcao) ?? null) : null;
     set({ aircraft, aircraftMap, selectedAircraft, lastUpdated: new Date() });
   },
 
-  // ── Selection ─────────────────────────────────────────────────────────────
   selectedIcao: null,
   selectedAircraft: null,
   setSelectedIcao: (icao) => {
-    const aircraft = icao ? (get().aircraftMap.get(icao) ?? null) : null;
-    set({ selectedIcao: icao, selectedAircraft: aircraft, drawerOpen: !!icao });
+    const selectedAircraft = icao ? (get().aircraftMap.get(icao) ?? null) : null;
+    set({ selectedIcao: icao, selectedAircraft, drawerOpen: !!icao });
   },
 
-  // ── Conflicts ─────────────────────────────────────────────────────────────
-  conflicts: [],
-  predictedConflicts: [],
-  conflictIcaos: new Set(),
-  setConflicts: (conflicts) => {
-    const conflictIcaos = new Set<string>();
-    conflicts.forEach((c) => { conflictIcaos.add(c.aircraft_1); conflictIcaos.add(c.aircraft_2); });
-    set({ conflicts, conflictIcaos });
-  },
-  setPredictedConflicts: (predictedConflicts) => set({ predictedConflicts }),
-
-  // ── Weather ───────────────────────────────────────────────────────────────
   weatherCells: [],
   setWeatherCells: (weatherCells) => set({ weatherCells }),
   weatherAdvisories: [],
@@ -93,13 +63,11 @@ export const useStore = create<AppState>((set, get) => ({
   activeWeatherMode: "none",
   setWeatherMode: (activeWeatherMode) => set({ activeWeatherMode }),
 
-  // ── Theme ─────────────────────────────────────────────────────────────────
   theme: "night",
   setTheme: (theme) => set({ theme }),
   manualTheme: false,
   setManualTheme: (manualTheme) => set({ manualTheme }),
 
-  // ── UI ────────────────────────────────────────────────────────────────────
   drawerOpen: false,
   setDrawerOpen: (drawerOpen) => set({ drawerOpen }),
   isLoading: true,
@@ -108,6 +76,4 @@ export const useStore = create<AppState>((set, get) => ({
   setLastUpdated: (lastUpdated) => set({ lastUpdated }),
   connectionStatus: "connecting",
   setConnectionStatus: (connectionStatus) => set({ connectionStatus }),
-  showConflictPanel: true,
-  setShowConflictPanel: (showConflictPanel) => set({ showConflictPanel }),
 }));

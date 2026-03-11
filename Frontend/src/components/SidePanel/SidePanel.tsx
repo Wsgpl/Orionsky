@@ -1,86 +1,88 @@
-import { useState, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../../store";
-import { WeatherMode } from "../../types";
+import { WeatherMode, type Aircraft, type WeatherCell } from "../../types";
+import { aircraftSearchText, getAirlineInfo, getFlightNumber } from "../../utils/airline";
 
-type Section = "weather" | "conflicts" | "aircraft" | null;
+type Section = "weather" | "traffic" | "operations" | null;
 
-export function SidePanel() {
-  const [open, setOpen] = useState<Section>("weather");
-  const toggle = (s: Section) => setOpen(prev => prev === s ? null : s);
+const WX_BTNS: { mode: WeatherMode; icon: string; label: string; accent: string }[] = [
+  { mode: "temperature", icon: "TMP", label: "Temperature", accent: "#f4793a" },
+  { mode: "wind", icon: "WND", label: "Wind", accent: "#42a5f5" },
+  { mode: "precipitation", icon: "PRC", label: "Precipitation", accent: "#4a90e2" },
+  { mode: "humidity", icon: "HUM", label: "Humidity", accent: "#4caf50" },
+  { mode: "pressure", icon: "PRS", label: "Pressure", accent: "#26c6da" },
+];
+
+export function SidePanel({ mode }: { mode: "radar" | "weather" }) {
+  const [open, setOpen] = useState<Section>(mode === "weather" ? "weather" : "traffic");
+  const toggle = (section: Section) => setOpen((prev) => (prev === section ? null : section));
 
   return (
     <div className="side-panel">
-      <WeatherSection open={open === "weather"} onToggle={() => toggle("weather")} />
-      <ConflictsSection open={open === "conflicts"} onToggle={() => toggle("conflicts")} />
-      <AircraftSection open={open === "aircraft"} onToggle={() => toggle("aircraft")} />
+      {mode === "weather" && <WeatherSection open={open === "weather"} onToggle={() => toggle("weather")} />}
+      {mode === "radar" && <TrafficSection open={open === "traffic"} onToggle={() => toggle("traffic")} />}
+      <OperationsSection open={open === "operations"} onToggle={() => toggle("operations")} />
     </div>
   );
 }
 
-// ── Weather Section ───────────────────────────────────────────────────────────
-const WX_BTNS: { mode: WeatherMode; icon: string; label: string; accent: string }[] = [
-  { mode: "temperature",   icon: "🌡", label: "TEMP",   accent: "#f4793a" },
-  { mode: "wind",          icon: "💨", label: "WIND",   accent: "#42a5f5" },
-  { mode: "precipitation", icon: "🌧", label: "RAIN",   accent: "#7c4dff" },
-  { mode: "clouds",        icon: "☁",  label: "CLOUD",  accent: "#90caf9" },
-  { mode: "humidity",      icon: "💧", label: "HUMID",  accent: "#4caf50" },
-];
-
-const WX_LEGENDS: Record<string, { stops: [string, string][] }> = {
-  temperature:   { stops: [["#4fc3f7","< 10°C"],["#fff176","20°C"],["#ff8f00","30°C"],["#b71c1c","> 40°C"]] },
-  wind:          { stops: [["#e3f2fd","Calm"],["#42a5f5","10 m/s"],["#1565c0","25 m/s"],["#0d1a50","Storm"]] },
-  precipitation: { stops: [["rgba(0,230,255,0.7)","Light"],["#7c4dff","Moderate"],["#b71c1c","Heavy"]] },
-  clouds:        { stops: [["rgba(180,200,240,0.4)","Thin"],["#6490c8","Moderate"],["#2a3a6a","Overcast"]] },
-  humidity:      { stops: [["#ffe082","Dry"],["#66bb6a","50%"],["#1b5e20","Humid"]] },
-};
-
 function WeatherSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const mode    = useStore((s) => s.activeWeatherMode);
+  const mode = useStore((s) => s.activeWeatherMode);
   const setMode = useStore((s) => s.setWeatherMode);
-  const toggle  = (m: WeatherMode) => setMode(mode === m ? "none" : m);
+  const weatherCells = useStore((s) => s.weatherCells);
+  const advisories = useStore((s) => s.weatherAdvisories);
+
+  const warmest = weatherCells.reduce<WeatherCell | null>(
+    (best, cell) => (!best || cell.data.temperature > best.data.temperature ? cell : best),
+    null
+  );
+  const strongestWind = weatherCells.reduce<WeatherCell | null>(
+    (best, cell) => (!best || cell.data.wind_speed > best.data.wind_speed ? cell : best),
+    null
+  );
 
   return (
     <div className="sp-section">
       <button className={`sp-header ${open ? "sp-header--open" : ""}`} onClick={onToggle}>
-        <span className="sp-header-icon">🌍</span>
-        <span className="sp-header-label">WEATHER</span>
+        <span className="sp-header-icon">WX</span>
+        <span className="sp-header-label">Weather Desk</span>
         {mode !== "none" && <span className="sp-active-pip" />}
-        <span className="sp-chevron">{open ? "▲" : "▼"}</span>
+        <span className="sp-chevron">{open ? "UP" : "DN"}</span>
       </button>
 
       {open && (
         <div className="sp-body">
-          <div className="sp-wx-grid">
-            {WX_BTNS.map(btn => {
-              const active = mode === btn.mode;
+          <div className="sp-overview-grid">
+            <OverviewTile label="Layer" value={mode === "none" ? "Off" : mode.toUpperCase()} />
+            <OverviewTile label="Cells" value={String(weatherCells.length)} />
+            <OverviewTile label="Alerts" value={String(advisories.length)} />
+            <OverviewTile label="Warmest" value={warmest ? `${Math.round(warmest.data.temperature)} C` : "NA"} />
+            <OverviewTile label="Wind Max" value={strongestWind ? `${Math.round(strongestWind.data.wind_speed)} m/s` : "NA"} />
+          </div>
+
+          <div className="sp-wx-grid sp-wx-grid--dashboard">
+            {WX_BTNS.map((button) => {
+              const active = mode === button.mode;
               return (
                 <button
-                  key={btn.mode}
+                  key={button.mode}
                   className={`sp-wx-btn ${active ? "sp-wx-btn--active" : ""}`}
-                  style={{ "--wx-accent": btn.accent } as CSSProperties}
-                  onClick={() => toggle(btn.mode)}
+                  style={{ "--wx-accent": button.accent } as CSSProperties}
+                  onClick={() => setMode(mode === button.mode ? "none" : button.mode)}
                 >
-                  <span className="sp-wx-icon">{btn.icon}</span>
-                  <span className="sp-wx-label">{btn.label}</span>
-                  {active && <span className="sp-wx-pip" />}
+                  <span className="sp-wx-icon">{button.icon}</span>
+                  <span className="sp-wx-label">{button.label}</span>
                 </button>
               );
             })}
           </div>
 
-          {mode !== "none" && WX_LEGENDS[mode] && (
-            <div className="sp-legend">
-              {WX_LEGENDS[mode].stops.map(([color, label], i) => (
-                <div key={i} className="sp-legend-item">
-                  <div className="sp-legend-swatch" style={{ background: color }} />
-                  <span className="sp-legend-label">{label}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="sp-wx-hint">
-            <span>📍</span> Click map for weather data
+          <div className="sp-text-block">
+            <div className="sp-subtitle">What this panel shows</div>
+            <p>
+              Weather overlays stay on the same India traffic map. Aircraft remain visible above the animated weather
+              field so you can read route flow and local conditions together.
+            </p>
           </div>
         </div>
       )}
@@ -88,147 +90,174 @@ function WeatherSection({ open, onToggle }: { open: boolean; onToggle: () => voi
   );
 }
 
-// ── Conflicts Section ─────────────────────────────────────────────────────────
-function ConflictsSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const conflicts  = useStore((s) => s.conflicts);
-  const predicted  = useStore((s) => s.predictedConflicts);
-  const setIcao    = useStore((s) => s.setSelectedIcao);
-  const total      = conflicts.length + predicted.length;
-
-  return (
-    <div className="sp-section">
-      <button className={`sp-header ${open ? "sp-header--open" : ""}`} onClick={onToggle}>
-        <span className="sp-header-icon">⚡</span>
-        <span className="sp-header-label">CONFLICTS</span>
-        {total > 0 && <span className="sp-count-badge sp-count-badge--red">{total}</span>}
-        <span className="sp-chevron">{open ? "▲" : "▼"}</span>
-      </button>
-
-      {open && (
-        <div className="sp-body sp-body--scroll">
-          {conflicts.length === 0 && predicted.length === 0 && (
-            <div className="sp-empty">No active conflicts</div>
-          )}
-
-          {conflicts.length > 0 && (
-            <>
-              <div className="sp-subsection-title">
-                <span className="sp-pulse" /> ACTIVE VIOLATIONS
-              </div>
-              {conflicts.map((c, i) => (
-                <div key={i} className="sp-conflict-row" onClick={() => setIcao(c.aircraft_1)}>
-                  <div className="sp-conflict-pair">
-                    <span className="sp-icao">{c.aircraft_1}</span>
-                    <span className="sp-vs">⚡</span>
-                    <span className="sp-icao">{c.aircraft_2}</span>
-                  </div>
-                  <div className="sp-conflict-metrics">
-                    <span>↔ {c.horizontal_km.toFixed(1)} km</span>
-                    <span>↕ {Math.round(c.vertical_ft)} ft</span>
-                  </div>
-                </div>
-              ))}
-            </>
-          )}
-
-          {predicted.length > 0 && (
-            <>
-              <div className="sp-subsection-title sp-subsection-title--amber">
-                ⏱ PREDICTED
-              </div>
-              {predicted.slice(0, 5).map((c, i) => (
-                <div key={i} className="sp-conflict-row sp-conflict-row--predicted" onClick={() => setIcao(c.aircraft_1)}>
-                  <div className="sp-conflict-pair">
-                    <span className="sp-icao">{c.aircraft_1}</span>
-                    <span className="sp-vs sp-vs--amber">⟶</span>
-                    <span className="sp-icao">{c.aircraft_2}</span>
-                  </div>
-                  <span className="sp-in-time">in {Math.round(c.predicted_in_seconds / 60)} min</span>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── Aircraft Section ──────────────────────────────────────────────────────────
-function AircraftSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
-  const aircraft    = useStore((s) => s.aircraft);
-  const setIcao     = useStore((s) => s.setSelectedIcao);
-  const conflictSet = useStore((s) => s.conflictIcaos);
+function TrafficSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const aircraft = useStore((s) => s.aircraft);
+  const selectedIcao = useStore((s) => s.selectedIcao);
+  const setSelectedIcao = useStore((s) => s.setSelectedIcao);
   const [search, setSearch] = useState("");
+  const carrierCount = useMemo(() => new Set(aircraft.map((item) => getAirlineInfo(item.callsign).airline)).size, [aircraft]);
 
-  const filtered = aircraft.filter(ac => {
-    const q = search.toLowerCase();
-    return !q || (ac.callsign ?? ac.icao).toLowerCase().includes(q) || ac.icao.toLowerCase().includes(q);
-  });
+  const filtered = aircraft
+    .filter((item) => {
+      const query = search.toLowerCase();
+      return !query || aircraftSearchText(item).includes(query);
+    })
+    .sort((a, b) => {
+      if (a.on_ground !== b.on_ground) return Number(a.on_ground) - Number(b.on_ground);
+      return b.altitude - a.altitude;
+    });
 
-  const airborne = aircraft.filter(a => !a.on_ground).length;
-  const ground   = aircraft.filter(a => a.on_ground).length;
+  const spotlight = filtered.filter((item) => !item.on_ground).slice(0, 6);
 
   return (
     <div className="sp-section">
       <button className={`sp-header ${open ? "sp-header--open" : ""}`} onClick={onToggle}>
-        <span className="sp-header-icon">✈</span>
-        <span className="sp-header-label">AIRCRAFT</span>
+        <span className="sp-header-icon">TRF</span>
+        <span className="sp-header-label">Traffic Desk</span>
         <span className="sp-count-badge sp-count-badge--blue">{aircraft.length}</span>
-        <span className="sp-chevron">{open ? "▲" : "▼"}</span>
+        <span className="sp-chevron">{open ? "UP" : "DN"}</span>
       </button>
 
       {open && (
         <div className="sp-body">
-          <div className="sp-ac-stats">
-            <span>✈ {airborne} airborne</span>
-            <span>⬛ {ground} ground</span>
-          </div>
-
           <div className="sp-search-wrap">
-            <span className="sp-search-icon">🔍</span>
+            <span className="sp-search-icon">FIND</span>
             <input
               className="sp-search"
-              placeholder="Search callsign / ICAO…"
+              placeholder="Search flight, callsign, ICAO, airline"
               value={search}
-              onChange={e => setSearch(e.target.value)}
-              onClick={e => e.stopPropagation()}
+              onChange={(event) => setSearch(event.target.value)}
             />
-            {search && (
-              <button className="sp-search-clear" onClick={() => setSearch("")}>✕</button>
-            )}
+            {search && <button className="sp-search-clear" onClick={() => setSearch("")}>CLR</button>}
+          </div>
+
+          <div className="sp-text-block sp-text-block--compact">
+            <div className="sp-subtitle">Spotlight flights</div>
+          </div>
+
+          <div className="sp-traffic-list">
+            {spotlight.map((item) => (
+              <TrafficRow
+                key={item.icao}
+                aircraft={item}
+                onSelect={setSelectedIcao}
+                isSelected={selectedIcao === item.icao}
+                featured
+              />
+            ))}
+          </div>
+
+          <div className="sp-text-block sp-text-block--compact">
+            <div className="sp-subtitle">All tracked aircraft</div>
           </div>
 
           <div className="sp-ac-list">
-            {filtered.slice(0, 40).map(ac => {
-              const isConflict = conflictSet.has(ac.icao);
-              const fl = ac.altitude > 100
-                ? `FL${Math.round(ac.altitude / 100).toString().padStart(3, "0")}`
-                : "GND";
-              return (
-                <div
-                  key={ac.icao}
-                  className={`sp-ac-row ${isConflict ? "sp-ac-row--conflict" : ""}`}
-                  onClick={() => setIcao(ac.icao)}
-                >
-                  <div className="sp-ac-id">
-                    <span className="sp-ac-cs">{ac.callsign ?? ac.icao}</span>
-                    <span className="sp-ac-hex">{ac.icao}</span>
-                  </div>
-                  <div className="sp-ac-data">
-                    <span>{fl}</span>
-                    <span>{Math.round(ac.velocity)} kts</span>
-                    {isConflict && <span className="sp-ac-alert">⚡</span>}
-                  </div>
-                </div>
-              );
-            })}
-            {filtered.length > 40 && (
-              <div className="sp-more">+{filtered.length - 40} more — refine search</div>
-            )}
+            {filtered.slice(0, 36).map((item) => (
+              <TrafficRow
+                key={item.icao}
+                aircraft={item}
+                onSelect={setSelectedIcao}
+                isSelected={selectedIcao === item.icao}
+              />
+            ))}
+            {filtered.length > 36 && <div className="sp-more">+{filtered.length - 36} more flights in the feed</div>}
+          </div>
+
+          <div className="sp-text-block">
+            <div className="sp-subtitle">Coverage</div>
+            <p>{carrierCount} airlines are color-coded on the shared map layer across domestic and international traffic.</p>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function OperationsSection({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  const aircraft = useStore((s) => s.aircraft);
+  const weatherCells = useStore((s) => s.weatherCells);
+  const airborne = aircraft.filter((item) => !item.on_ground).length;
+  const arrivingLeaving = aircraft.filter((item) => !item.on_ground && item.altitude < 5000).length;
+  const weatherSignals = weatherCells.filter((cell) => {
+    const condition = cell.data.condition.toLowerCase();
+    return condition.includes("rain") || condition.includes("storm") || condition.includes("cloud");
+  }).length;
+
+  return (
+    <div className="sp-section">
+      <button className={`sp-header ${open ? "sp-header--open" : ""}`} onClick={onToggle}>
+        <span className="sp-header-icon">OPS</span>
+        <span className="sp-header-label">Operations</span>
+        <span className="sp-chevron">{open ? "UP" : "DN"}</span>
+      </button>
+
+      {open && (
+        <div className="sp-body">
+          <div className="sp-overview-grid">
+            <OverviewTile label="Airborne" value={String(airborne)} />
+            <OverviewTile label="Low Alt" value={String(arrivingLeaving)} />
+            <OverviewTile label="WX Cells" value={String(weatherSignals)} />
+          </div>
+
+          <div className="sp-text-block">
+            <div className="sp-subtitle">Map behavior</div>
+            <p>Aircraft symbols stay above every weather mode. Clicking a weather region opens only regional weather data, not a region flight list.</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrafficRow({
+  aircraft,
+  onSelect,
+  isSelected = false,
+  featured = false,
+}: {
+  aircraft: Aircraft;
+  onSelect: (icao: string | null) => void;
+  isSelected?: boolean;
+  featured?: boolean;
+}) {
+  const airline = getAirlineInfo(aircraft.callsign).airline;
+  const airlineColor = getAirlineInfo(aircraft.callsign).color;
+  const flightNo = getFlightNumber(aircraft.callsign);
+  const phase = aircraft.on_ground ? "Ground" : aircraft.altitude < 5000 ? "Arrival / Departure" : "En route";
+
+  return (
+    <div
+      className={`sp-ac-row ${featured ? "sp-ac-row--featured" : ""} ${isSelected ? "sp-ac-row--selected" : ""}`}
+      style={{ borderLeft: `4px solid ${airlineColor}` }}
+      onClick={() => onSelect(aircraft.icao)}
+    >
+      <div className="sp-ac-id">
+        <button
+          type="button"
+          className="sp-ac-cs-btn"
+          onClick={(event) => {
+            event.stopPropagation();
+            onSelect(aircraft.icao);
+          }}
+        >
+          <span className="sp-ac-cs">{flightNo}</span>
+        </button>
+        <span className="sp-ac-hex">{airline} - {(aircraft.callsign ?? aircraft.icao).trim()} - {aircraft.icao}</span>
+      </div>
+      <div className="sp-ac-data sp-ac-data--stack">
+        <span>{aircraft.altitude > 100 ? `FL${Math.round(aircraft.altitude / 100)}` : "GND"}</span>
+        <span>{Math.round(aircraft.velocity)} km/h</span>
+        <span>{phase}</span>
+      </div>
+    </div>
+  );
+}
+
+function OverviewTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="sp-overview-tile">
+      <span className="sp-overview-label">{label}</span>
+      <span className="sp-overview-value">{value}</span>
     </div>
   );
 }

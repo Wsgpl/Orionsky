@@ -2,7 +2,20 @@ import { useEffect, useRef } from "react";
 import { useStore } from "../store";
 import { Aircraft } from "../types";
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000";
+function resolveWsUrl(): string {
+  if (import.meta.env.VITE_WS_URL) {
+    return import.meta.env.VITE_WS_URL;
+  }
+
+  if (typeof window !== "undefined") {
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${wsProtocol}//${window.location.host}`;
+  }
+
+  return "ws://localhost:8000";
+}
+
+const WS_URL = resolveWsUrl();
 const RECONNECT_DELAY_MS = 3000;
 const MAX_RECONNECT_ATTEMPTS = 10;
 

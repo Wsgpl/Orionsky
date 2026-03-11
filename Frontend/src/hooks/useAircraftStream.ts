@@ -6,8 +6,6 @@ const POLL_MS = 15_000;
 
 export function useAircraftStream() {
   const setAircraft     = useStore((s) => s.setAircraft);
-  const setConflicts    = useStore((s) => s.setConflicts);
-  const setPredicted    = useStore((s) => s.setPredictedConflicts);
   const setStatus       = useStore((s) => s.setConnectionStatus);
   const setLoading      = useStore((s) => s.setLoading);
   const intervalRef     = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -16,17 +14,11 @@ export function useAircraftStream() {
 
   const fetch = useCallback(async () => {
     try {
-      const [acRes, cfRes, predRes] = await Promise.allSettled([
-        api.getAircraft(),
-        api.getConflicts(),
-        api.getPredictedConflicts(),
-      ]);
+      const acRes = await api.getAircraft();
 
       if (!mountedRef.current) return;
 
-      if (acRes.status === "fulfilled")   setAircraft(acRes.value.aircraft);
-      if (cfRes.status === "fulfilled")   setConflicts(cfRes.value.conflicts);
-      if (predRes.status === "fulfilled") setPredicted(predRes.value.conflicts);
+      setAircraft(acRes.aircraft);
 
       failCountRef.current = 0;
       setStatus("connected");
@@ -37,7 +29,7 @@ export function useAircraftStream() {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
-  }, [setAircraft, setConflicts, setPredicted, setStatus, setLoading]);
+  }, [setAircraft, setStatus, setLoading]);
 
   useEffect(() => {
     mountedRef.current = true;

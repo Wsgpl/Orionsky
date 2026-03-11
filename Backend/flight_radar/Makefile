@@ -1,4 +1,4 @@
-.PHONY: install dev lint typecheck test test-cov docker-build docker-up docker-down auth-hash clean
+.PHONY: install dev lint typecheck test test-cov docker-build docker-up docker-down auth-hash preflight clean
 
 install:
 	pip install -r requirements.txt
@@ -33,6 +33,9 @@ docker-logs:
 
 auth-hash:
 	python -c "from passlib.context import CryptContext; import getpass; pwd=getpass.getpass('Password: '); print(CryptContext(schemes=['bcrypt'], deprecated='auto').hash(pwd))"
+
+preflight:
+	python scripts/preflight.py --target production
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} +

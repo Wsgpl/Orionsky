@@ -4,7 +4,6 @@ import { Aircraft, WeatherCell, WeatherMode } from "../types";
 
 export function buildAircraftGeoJSON(
   aircraft: Aircraft[],
-  conflictIcaos: Set<string>,
   selectedIcao: string | null
 ): GeoJSON.FeatureCollection {
   return {
@@ -22,7 +21,6 @@ export function buildAircraftGeoJSON(
         velocity: ac.velocity,
         heading: ac.heading,
         on_ground: ac.on_ground ? 1 : 0,
-        conflict: conflictIcaos.has(ac.icao) ? 1 : 0,
         selected: ac.icao === selectedIcao ? 1 : 0,
         rotation: ac.heading,
       },
@@ -59,7 +57,6 @@ function extractWeatherValue(cell: WeatherCell, mode: WeatherMode): number {
     case "temperature":   return cell.data.temperature;
     case "wind":          return cell.data.wind_speed;
     case "humidity":      return cell.data.humidity;
-    case "clouds":        return cell.data.cloud_cover;
     case "precipitation": {
       const c = cell.data.condition.toLowerCase();
       if (c.includes("thunder") || c.includes("storm")) return 100;
@@ -100,20 +97,12 @@ export function getWeatherColorRamp(mode: WeatherMode): ColorStop[] {
       ];
     case "humidity":
       return [
-        [0,   "#fff8e1"],
-        [20,  "#ffe082"],
-        [40,  "#66bb6a"],
-        [60,  "#2e7d32"],
-        [80,  "#1b5e20"],
-        [100, "#004d00"],
-      ];
-    case "clouds":
-      return [
-        [0,   "rgba(255,255,255,0.0)"],
-        [20,  "rgba(220,230,245,0.25)"],
-        [50,  "rgba(160,190,230,0.50)"],
-        [80,  "rgba(100,140,200,0.72)"],
-        [100, "rgba(50,80,160,0.88)"],
+        [0,   "#ffe08a"],
+        [20,  "#f8d063"],
+        [40,  "#d8d98f"],
+        [60,  "#91d7c8"],
+        [80,  "#57b3e3"],
+        [100, "#2f6fb2"],
       ];
     case "precipitation":
       return [
@@ -134,8 +123,7 @@ export function buildHeatmapColorExpr(mode: WeatherMode): MapExpr {
   const palettes: Record<string, string[]> = {
     temperature:   ["#0a1628","#1a4a8c","#2b7cbc","#81c784","#fff176","#ff8f00","#b71c1c"],
     wind:          ["#e3f2fd","#90caf9","#42a5f5","#1565c0","#0d47a1","#1a0050"],
-    humidity:      ["rgba(255,248,225,0)","#ffe082","#66bb6a","#2e7d32","#1b5e20","#004d00"],
-    clouds:        ["rgba(255,255,255,0)","rgba(220,230,245,0.3)","rgba(160,190,230,0.5)","rgba(100,140,200,0.72)","rgba(50,80,160,0.88)"],
+    humidity:      ["rgba(255,224,138,0)","#f8d063","#d8d98f","#91d7c8","#57b3e3","#2f6fb2"],
     precipitation: ["rgba(0,0,0,0)","rgba(0,230,255,0.4)","rgba(0,140,255,0.6)","rgba(80,0,200,0.75)","rgba(255,0,50,0.92)"],
   };
 
