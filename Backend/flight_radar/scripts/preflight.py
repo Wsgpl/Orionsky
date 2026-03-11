@@ -110,11 +110,9 @@ def main() -> int:
         if env.get("ENABLE_LEGACY_UNPREFIXED_ROUTES", "").lower() != "false":
             failures.append("ENABLE_LEGACY_UNPREFIXED_ROUTES must be false")
 
-    weather_source = env.get("WEATHER_SOURCE", "openweather")
-    if weather_source == "openweather" and not non_empty(env, "OPENWEATHER_API_KEY"):
-        failures.append("OPENWEATHER_API_KEY is required when WEATHER_SOURCE=openweather")
-    if weather_source == "icao" and not non_empty(env, "ICAO_WEATHER_URL"):
-        failures.append("ICAO_WEATHER_URL is required when WEATHER_SOURCE=icao")
+    weather_source = env.get("WEATHER_SOURCE", "openmeteo")
+    if weather_source != "openmeteo":
+        failures.append("WEATHER_SOURCE must be set to openmeteo")
 
     aircraft_sources = [s.strip() for s in env.get("AIRCRAFT_SOURCES", "opensky").split(",") if s.strip()]
     if "icao" in aircraft_sources and not non_empty(env, "ICAO_AIRCRAFT_URL"):

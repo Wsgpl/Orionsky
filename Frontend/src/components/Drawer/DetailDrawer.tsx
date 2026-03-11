@@ -1,7 +1,37 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { api } from "../../services/api";
 import { useStore } from "../../store";
-import { compassPoint, flightLevel, formatCoord } from "../../utils/mapHelpers";
+import type { ForecastResponse } from "../../types";
+import { getTargetDetail, getTargetKind } from "../../utils/aircraftClassification";
+import { compassPoint, formatCoord } from "../../utils/mapHelpers";
 import { getAirlineInfo, getFlightNumber } from "../../utils/airline";
+import { getFlightStatus, getFlightStatusLabel } from "../../utils/flightStatus";
+
+function getUnavailableScheduleTimes(): {
+  departureTime: string;
+  arrivalTime: string;
+  departureMeta: string;
+  arrivalMeta: string;
+} {
+  return {
+    departureTime: "Data unavailable",
+    arrivalTime: "Data unavailable",
+    departureMeta: "Real schedule data unavailable",
+    arrivalMeta: "Real schedule data unavailable",
+  };
+}
+
+function hasForecastData(forecast: ForecastResponse | null): boolean {
+  if (!forecast) {
+    return false;
+  }
+
+  if (typeof forecast.source === "string" && forecast.source.toLowerCase() === "unavailable") {
+    return false;
+  }
+
+  return Boolean(forecast.current) || forecast.daily.length > 0 || forecast.hourly.length > 0;
+}
 
 export function DetailDrawer() {
   const selectedAircraft = useStore((s) => s.selectedAircraft);
@@ -9,6 +39,58 @@ export function DetailDrawer() {
   const setSelectedIcao = useStore((s) => s.setSelectedIcao);
   const advisories = useStore((s) => s.weatherAdvisories);
   const weatherCells = useStore((s) => s.weatherCells);
+  const [forecast, setForecast] = useState<ForecastResponse | null>(null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
+  const forecastLat = selectedAircraft ? Number(selectedAircraft.latitude.toFixed(2)) : null;
+  const forecastLon = selectedAircraft ? Number(selectedAircraft.longitude.toFixed(2)) : null;
+
+  useEffect(() => {
+    let active = true;
+
+    if (!selectedAircraft) {
+      setForecast(null);
+      setForecastError(null);
+      setForecastLoading(false);
+      return () => {
+        active = false;
+      };
+    }
+
+    setForecastLoading(true);
+    setForecastError(null);
+
+    void api
+      .getForecast({ lat: forecastLat ?? selectedAircraft.latitude, lon: forecastLon ?? selectedAircraft.longitude })
+      .then((response) => {
+        if (!active) {
+          return;
+        }
+        if (!hasForecastData(response)) {
+          setForecast(null);
+          setForecastError("Data unavailable.");
+          return;
+        }
+        setForecast(response);
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+        setForecast(null);
+        setForecastError(getErrorMessage(error, "Data unavailable."));
+      })
+      .finally(() => {
+        if (!active) {
+          return;
+        }
+        setForecastLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [forecastLat, forecastLon, selectedAircraft?.icao]);
 
   if (!selectedAircraft) {
     return <div className={`detail-drawer ${drawerOpen ? "detail-drawer--open" : ""}`} />;
@@ -16,8 +98,12 @@ export function DetailDrawer() {
 
   const aircraft = selectedAircraft;
   const advisory = advisories.find((item) => item.aircraft === aircraft.icao);
+  const targetKind = getTargetKind(aircraft);
   const airline = getAirlineInfo(aircraft.callsign).airline;
   const flightNo = getFlightNumber(aircraft.callsign);
+  const classification = getTargetDetail(aircraft) ?? airline;
+  const flightStatus = getFlightStatus(aircraft);
+  const flightStatusLabel = getFlightStatusLabel(aircraft);
 
   const nearestWeather =
     weatherCells.length > 0
@@ -36,8 +122,10 @@ export function DetailDrawer() {
         ? 20
         : 5;
   const overallRisk = Math.max(weatherRisk, icingRisk);
+  const scheduleTimes = getUnavailableScheduleTimes();
 
   return (
+    <>
     <div className={`detail-drawer ${drawerOpen ? "detail-drawer--open" : ""}`}>
       <div className="drawer-header">
         <div className="drawer-ac-identity">
@@ -57,10 +145,12 @@ export function DetailDrawer() {
           </div>
           <div className="drawer-ac-info">
             <div className="drawer-callsign">{flightNo}</div>
-            <div className="drawer-icao-hex">{airline}</div>
+            <div className="drawer-icao-hex">{targetKind}</div>
+            <div className="drawer-icao-hex">{classification}</div>
             <div className="drawer-icao-hex">{(aircraft.callsign ?? aircraft.icao).trim()} - {aircraft.icao}</div>
             <div className="drawer-status-pill">
-              {aircraft.on_ground ? <span className="pill pill--ground">ON GROUND</span> : <span className="pill pill--airborne">AIRBORNE</span>}
+              <span className={`pill ${aircraft.on_ground ? "pill--ground" : "pill--airborne"}`}>{flightStatusLabel}</span>
+              <span className="pill pill--type">{targetKind.toUpperCase()}</span>
               {advisory && <span className={`pill pill--wx-${advisory.severity.toLowerCase()}`}>{advisory.severity} WX</span>}
             </div>
           </div>
@@ -85,15 +175,45 @@ export function DetailDrawer() {
           </svg>
           <span className="risk-gauge-label">RISK</span>
         </div>
-
-        <button className="drawer-close-btn" onClick={() => setSelectedIcao(null)} aria-label="Close">
-          X
-        </button>
       </div>
 
       <div className="drawer-body">
-        <DrawerSection title="ALTITUDE">
-          <AltitudeCard altitude={aircraft.altitude} />
+        <DrawerSection title="FLIGHT ROUTE">
+          <div className="data-grid data-grid--2">
+            <DataCell
+              label="DEPARTURE PLACE"
+              value="Data unavailable"
+              sub="Real route data unavailable"
+            />
+            <DataCell
+              label="ARRIVAL PLACE"
+              value="Data unavailable"
+              sub="Real route data unavailable"
+            />
+          </div>
+        </DrawerSection>
+
+        <DrawerSection title="DEPARTURE & ARRIVAL">
+          <div className="data-grid data-grid--2">
+            <DataCell
+              label="DEPARTURE TIME"
+              value={scheduleTimes.departureTime}
+              sub={scheduleTimes.departureMeta}
+            />
+            <DataCell
+              label="ARRIVAL TIME"
+              value={scheduleTimes.arrivalTime}
+              sub={scheduleTimes.arrivalMeta}
+            />
+          </div>
+        </DrawerSection>
+
+        <DrawerSection title="POSITION">
+          <div className="data-grid">
+            <DataCell label="LATITUDE" value={formatCoord(aircraft.latitude, "lat")} />
+            <DataCell label="LONGITUDE" value={formatCoord(aircraft.longitude, "lon")} />
+            <DataCell label="ALTITUDE" value={`${Math.round(aircraft.altitude).toLocaleString()} ft`} />
+          </div>
         </DrawerSection>
 
         <DrawerSection title="FLIGHT TELEMETRY">
@@ -103,35 +223,57 @@ export function DetailDrawer() {
             <DataCell
               label="FLIGHT PHASE"
               value={
-                aircraft.on_ground ? "GROUND" : aircraft.altitude < 5000 ? "TAKEOFF/LANDING" : aircraft.altitude < 20000 ? "CLIMBING" : "CRUISE"
+                flightStatus === "taxiing"
+                  ? "TAXI"
+                  : flightStatus === "recently_landed"
+                    ? "LANDED"
+                    : flightStatus === "arriving"
+                      ? "APPROACH"
+                      : flightStatus === "departing"
+                        ? "DEPARTURE"
+                        : aircraft.altitude < 20000
+                          ? "CLIMBING"
+                          : "CRUISE"
               }
             />
           </div>
         </DrawerSection>
 
-        <DrawerSection title="POSITION">
-          <div className="data-grid data-grid--2">
-            <DataCell label="LATITUDE" value={formatCoord(aircraft.latitude, "lat")} />
-            <DataCell label="LONGITUDE" value={formatCoord(aircraft.longitude, "lon")} />
-          </div>
-        </DrawerSection>
+        <DrawerSection title="FORECAST">
+          {forecastLoading ? (
+            <div className="drawer-note">Loading...</div>
+          ) : forecastError ? (
+            <div className="drawer-note drawer-note--danger">{forecastError}</div>
+          ) : forecast ? (
+            <>
+              {forecast.current && (
+                <div className="data-grid">
+                  <DataCell label="CURRENT TEMP" value={`${forecast.current.temperature.toFixed(1)} C`} />
+                  <DataCell label="CURRENT WIND" value={`${forecast.current.wind_speed.toFixed(1)} m/s`} />
+                  <DataCell label="CURRENT VIS." value={`${(forecast.current.visibility / 1000).toFixed(1)} km`} />
+                  <DataCell label="CONDITION" value={forecast.current.condition?.toUpperCase() ?? "DATA UNAVAILABLE"} />
+                </div>
+              )}
 
-        {nearestWeather && (
-          <DrawerSection title="WEATHER AT LOCATION">
-            <div className="data-grid">
-              <DataCell label="TEMPERATURE" value={`${nearestWeather.data.temperature.toFixed(1)} C`} />
-              <DataCell
-                label="WIND"
-                value={`${nearestWeather.data.wind_speed.toFixed(1)} m/s`}
-                sub={`${Math.round(nearestWeather.data.wind_direction)} deg ${compassPoint(nearestWeather.data.wind_direction)}`}
-              />
-              <DataCell label="VISIBILITY" value={`${(nearestWeather.data.visibility / 1000).toFixed(1)} km`} />
-              <DataCell label="CLOUD COVER" value={`${Math.round(nearestWeather.data.cloud_cover)}%`} />
-              <DataCell label="HUMIDITY" value={`${Math.round(nearestWeather.data.humidity)}%`} />
-              <DataCell label="PRESSURE" value={`${Math.round(nearestWeather.data.pressure)} hPa`} />
-            </div>
-          </DrawerSection>
-        )}
+              {forecast.daily.length > 0 && (
+                <div className="drawer-forecast-list">
+                  {forecast.daily.slice(0, 3).map((item) => (
+                    <div key={item.date} className="drawer-forecast-row">
+                      <div className="drawer-forecast-day">{formatDrawerDate(item.date)}</div>
+                      <div className="drawer-forecast-values">
+                        <span>{item.temp_min !== null ? `${Math.round(item.temp_min)} C` : "Data unavailable"}</span>
+                        <span>{item.temp_max !== null ? `${Math.round(item.temp_max)} C` : "Data unavailable"}</span>
+                        <span>{item.condition ?? "Data unavailable"}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="drawer-note">Data unavailable.</div>
+          )}
+        </DrawerSection>
 
         <DrawerSection title="RISK ASSESSMENT">
           <RiskBar
@@ -149,11 +291,43 @@ export function DetailDrawer() {
         </DrawerSection>
       </div>
 
-      <div className="drawer-footer">
-        <span>AEROINTEL - {aircraft.icao}</span>
-        <span>{new Date().toISOString().slice(0, 19).replace("T", " ")} UTC</span>
-      </div>
     </div>
+
+    {/* Floating Back Button for Radar Details */}
+    {drawerOpen && (
+      <button 
+        className="planner-toggle-btn radar-details-back-btn" 
+        style={{ 
+          position: "absolute", 
+          right: "424px", /* 390px drawer width + 14px gutter + offset */
+          top: "120px",
+          zIndex: 800,
+          background: "var(--bg-glass)", 
+          color: "var(--text-0)",
+          border: "1px solid var(--border-1)",
+          backdropFilter: "var(--blur)",
+          WebkitBackdropFilter: "var(--blur)",
+          pointerEvents: "auto"
+        }}
+        onClick={() => setSelectedIcao(null)}
+        title="Back to Radar"
+      >
+        <svg 
+          className="blinking-arrow-icon"
+          width="24" 
+          height="24" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2.5" 
+          strokeLinecap="round" 
+          strokeLinejoin="round"
+        >
+          <path d="m15 18-6-6 6-6"/>
+        </svg>
+      </button>
+    )}
+    </>
   );
 }
 
@@ -191,21 +365,6 @@ function DataCell({
   );
 }
 
-function AltitudeCard({ altitude }: { altitude: number }) {
-  return (
-    <div className="altitude-card">
-      <div className="altitude-card-left">
-        <div className="altitude-card-label">FLIGHT LEVEL</div>
-        <div className="altitude-card-fl">{flightLevel(altitude)}</div>
-      </div>
-      <div className="altitude-card-right">
-        <div className="altitude-card-label">ALTITUDE</div>
-        <div className="altitude-card-ft">{Math.round(altitude).toLocaleString()} ft</div>
-      </div>
-    </div>
-  );
-}
-
 function RiskBar({
   label,
   value,
@@ -237,4 +396,32 @@ function RiskBar({
       </div>
     </div>
   );
+}
+
+function formatDrawerDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleDateString("en-GB", { day: "2-digit", month: "short", weekday: "short" });
+}
+
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "object" && error !== null) {
+    const maybeAxios = error as {
+      response?: {
+        data?: {
+          detail?: string;
+        };
+      };
+      message?: string;
+    };
+    if (maybeAxios.response?.data?.detail) {
+      return maybeAxios.response.data.detail;
+    }
+    if (maybeAxios.message) {
+      return maybeAxios.message;
+    }
+  }
+  return fallback;
 }

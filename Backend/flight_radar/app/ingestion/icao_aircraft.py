@@ -21,6 +21,7 @@ from tenacity import (
 from app.core.config import get_settings
 from app.ingestion.circuit_breaker import CircuitBreaker, CircuitBreakerError
 from app.schemas.aircraft import AircraftState
+from app.utils.aircraft_classification import first_present_label
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -47,10 +48,10 @@ def _normalise_heading(value: Any) -> float:
     return _safe_float(value, 0.0) % 360
 
 
-def _within_airspace(lat: float, lon: float) -> bool:
+def _within_aircraft_scope(lat: float, lon: float) -> bool:
     return (
-        settings.AIRSPACE_MIN_LAT <= lat <= settings.AIRSPACE_MAX_LAT
-        and settings.AIRSPACE_MIN_LON <= lon <= settings.AIRSPACE_MAX_LON
+        settings.AIRCRAFT_MIN_LAT <= lat <= settings.AIRCRAFT_MAX_LAT
+        and settings.AIRCRAFT_MIN_LON <= lon <= settings.AIRCRAFT_MAX_LON
     )
 
 
@@ -83,7 +84,7 @@ def _parse_aircraft(items: list[dict[str, Any]]) -> list[AircraftState]:
 
             lat = _safe_float(item.get("lat") or item.get("latitude"), default=999.0)
             lon = _safe_float(item.get("lon") or item.get("longitude"), default=999.0)
-            if abs(lat) > 90 or abs(lon) > 180 or not _within_airspace(lat, lon):
+            if abs(lat) > 90 or abs(lon) > 180 or not _within_aircraft_scope(lat, lon):
                 continue
 
             altitude_ft = _safe_float(
@@ -102,6 +103,13 @@ def _parse_aircraft(items: list[dict[str, Any]]) -> list[AircraftState]:
 
             callsign_raw = item.get("callsign") or item.get("flight")
             callsign = str(callsign_raw).strip() if callsign_raw else None
+            category = first_present_label(item.get("category"), item.get("emitter_category"))
+            aircraft_type = first_present_label(
+                item.get("aircraft_type"),
+                item.get("type"),
+                item.get("vehicle_type"),
+                item.get("description"),
+            )
 
             parsed.append(
                 AircraftState(
@@ -113,6 +121,9 @@ def _parse_aircraft(items: list[dict[str, Any]]) -> list[AircraftState]:
                     velocity=max(0.0, speed_kmh),
                     heading=_normalise_heading(item.get("heading") or item.get("track")),
                     on_ground=bool(item.get("on_ground") or item.get("gnd")),
+                    source="icao",
+                    aircraft_type=aircraft_type,
+                    category=category,
                 )
             )
         except Exception as exc:

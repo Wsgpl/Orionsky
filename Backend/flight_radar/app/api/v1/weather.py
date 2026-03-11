@@ -1,6 +1,8 @@
 """Weather API endpoints."""
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter
 
 from app.core.dependencies import CurrentUser, Redis
@@ -9,6 +11,7 @@ from app.schemas.weather import WeatherGridResponse
 from app.services.weather_service import get_weather_advisories, get_weather_grid
 
 router = APIRouter(prefix="/weather", tags=["Weather"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=WeatherGridResponse)
@@ -17,7 +20,16 @@ async def get_weather(
     _: CurrentUser,
 ) -> WeatherGridResponse:
     """Return the cached weather grid."""
-    return await get_weather_grid(redis)
+    response = await get_weather_grid(redis)
+    logger.info("Weather API response", extra={"count": response.count})
+    logger.debug(
+        "Weather API response payload",
+        extra={
+            "count": response.count,
+            "sample_cell": response.cells[0].model_dump(mode="json") if response.cells else None,
+        },
+    )
+    return response
 
 
 @router.get("/advisories", response_model=WeatherAdvisoryResponse)
@@ -26,4 +38,6 @@ async def weather_advisories(
     _: CurrentUser,
 ) -> WeatherAdvisoryResponse:
     """Generate weather advisories for all tracked aircraft."""
-    return await get_weather_advisories(redis)
+    response = await get_weather_advisories(redis)
+    logger.info("Weather advisories API response", extra={"count": response.count})
+    return response

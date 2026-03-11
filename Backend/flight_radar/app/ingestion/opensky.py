@@ -16,6 +16,7 @@ from tenacity import (
 from app.core.config import get_settings
 from app.ingestion.circuit_breaker import CircuitBreaker, CircuitBreakerError
 from app.schemas.aircraft import AircraftState
+from app.utils.aircraft_classification import first_present_label
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -31,6 +32,22 @@ def get_opensky_circuit() -> CircuitBreaker:
     return _circuit_breaker
 
 
+def _within_aircraft_scope(lat: float, lon: float) -> bool:
+    return (
+        settings.AIRCRAFT_MIN_LAT <= lat <= settings.AIRCRAFT_MAX_LAT
+        and settings.AIRCRAFT_MIN_LON <= lon <= settings.AIRCRAFT_MAX_LON
+    )
+
+
+def _is_global_aircraft_scope() -> bool:
+    return (
+        settings.AIRCRAFT_MIN_LAT <= -90.0
+        and settings.AIRCRAFT_MAX_LAT >= 90.0
+        and settings.AIRCRAFT_MIN_LON <= -180.0
+        and settings.AIRCRAFT_MAX_LON >= 180.0
+    )
+
+
 def _parse_states(raw_states: list) -> list[AircraftState]:
     aircraft: list[AircraftState] = []
 
@@ -44,14 +61,12 @@ def _parse_states(raw_states: list) -> list[AircraftState]:
             velocity: float | None = state[9]
             heading: float | None = state[10]
             on_ground: bool = bool(state[8])
+            category: str | None = first_present_label(state[17] if len(state) > 17 else None)
 
             if lat is None or lon is None:
                 continue
 
-            if not (
-                settings.AIRSPACE_MIN_LAT <= lat <= settings.AIRSPACE_MAX_LAT
-                and settings.AIRSPACE_MIN_LON <= lon <= settings.AIRSPACE_MAX_LON
-            ):
+            if not _within_aircraft_scope(lat, lon):
                 continue
 
             # Metres to feet
@@ -70,6 +85,9 @@ def _parse_states(raw_states: list) -> list[AircraftState]:
                     velocity=velocity_kmh,
                     heading=heading or 0.0,
                     on_ground=on_ground,
+                    source="opensky",
+                    aircraft_type=None,
+                    category=category,
                 )
             )
         except (IndexError, TypeError, ValueError) as exc:
@@ -79,12 +97,14 @@ def _parse_states(raw_states: list) -> list[AircraftState]:
 
 
 async def _fetch_raw() -> list[AircraftState]:
-    params: dict = {
-        "lamin": settings.AIRSPACE_MIN_LAT,
-        "lamax": settings.AIRSPACE_MAX_LAT,
-        "lomin": settings.AIRSPACE_MIN_LON,
-        "lomax": settings.AIRSPACE_MAX_LON,
-    }
+    params: dict = {}
+    if not _is_global_aircraft_scope():
+        params = {
+            "lamin": settings.AIRCRAFT_MIN_LAT,
+            "lamax": settings.AIRCRAFT_MAX_LAT,
+            "lomin": settings.AIRCRAFT_MIN_LON,
+            "lomax": settings.AIRCRAFT_MAX_LON,
+        }
 
     auth: tuple[str, str] | None = None
     if settings.OPENSKY_USERNAME and settings.OPENSKY_PASSWORD:

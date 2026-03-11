@@ -41,7 +41,7 @@ export function buildWeatherHeatGeoJSON(
         coordinates: [cell.data.longitude, cell.data.latitude],
       },
       properties: {
-        value: extractWeatherValue(cell, mode),
+        value: getWeatherModeValue(cell, mode),
         temperature: cell.data.temperature,
         wind_speed: cell.data.wind_speed,
         humidity: cell.data.humidity,
@@ -52,20 +52,22 @@ export function buildWeatherHeatGeoJSON(
   };
 }
 
-function extractWeatherValue(cell: WeatherCell, mode: WeatherMode): number {
+function getFiniteNumber(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+export function getWeatherModeValue(cell: WeatherCell, mode: WeatherMode): number | null {
   switch (mode) {
-    case "temperature":   return cell.data.temperature;
-    case "wind":          return cell.data.wind_speed;
-    case "humidity":      return cell.data.humidity;
-    case "precipitation": {
-      const c = cell.data.condition.toLowerCase();
-      if (c.includes("thunder") || c.includes("storm")) return 100;
-      if (c.includes("heavy rain")) return 80;
-      if (c.includes("rain") || c.includes("drizzle")) return 60;
-      if (c.includes("overcast")) return 30;
-      return 0;
-    }
-    default: return 0;
+    case "temperature":
+      return getFiniteNumber(cell.data.temperature);
+    case "wind":
+      return getFiniteNumber(cell.data.wind_speed);
+    case "humidity":
+      return getFiniteNumber(cell.data.humidity);
+    case "precipitation":
+      return getFiniteNumber(cell.data.precip_mm);
+    default:
+      return null;
   }
 }
 

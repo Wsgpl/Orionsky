@@ -44,8 +44,8 @@ def build_advisory(
     if weather.cloud_cover > 90:
         warnings.append("Dense cloud cover")
 
-    condition = weather.condition.lower()
-    if "rain" in condition or "storm" in condition or "thunder" in condition:
+    condition = weather.condition.lower() if weather.condition else None
+    if condition and ("rain" in condition or "storm" in condition or "thunder" in condition):
         warnings.append("Heavy precipitation")
 
     if not warnings:

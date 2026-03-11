@@ -14,6 +14,9 @@ from starlette.responses import JSONResponse, Response
 from app.cache.redis_client import get_pool
 from app.core.api_keys import validate_api_key
 from app.core.config import get_settings
+from app.core.security import get_subject_from_token
+
+from jose import JWTError
 
 import redis.asyncio as aioredis
 
@@ -31,6 +34,14 @@ def _client_key(request: Request) -> str:
     if auth_header.startswith("ApiKey "):
         key = auth_header.split(" ", 1)[1].strip()
         return f"ratelimit:apikey:{key[:8]}"
+    if auth_header.startswith("Bearer "):
+        token = auth_header.split(" ", 1)[1].strip()
+        try:
+            subject = get_subject_from_token(token)
+        except JWTError:
+            subject = None
+        if subject:
+            return f"ratelimit:jwt:{subject}"
 
     forwarded_for = request.headers.get("X-Forwarded-For")
     if forwarded_for:
@@ -59,6 +70,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         path: str = request.url.path
+        if request.method.upper() == "OPTIONS":
+            return await call_next(request)
         if any(path.startswith(p) for p in self._EXEMPT_PREFIXES):
             return await call_next(request)
 

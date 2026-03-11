@@ -1,0 +1,104 @@
+.globe-intro {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: #020412;
+  transition: opacity 0.7s ease;
+  opacity: 1;
+}
+
+.globe-intro--fadeout {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The MapLibre canvas fills the whole screen */
+.globe-intro__map {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Semi-transparent overlay panel at the bottom */
+.globe-intro__overlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px 60px;
+  background: linear-gradient(to top, rgba(2, 6, 25, 0.92) 60%, transparent);
+  gap: 10px;
+  z-index: 2;
+}
+
+.globe-intro__logo {
+  opacity: 0;
+  animation: globeFadeIn 0.8s ease 0.5s forwards;
+}
+
+.globe-intro__wordmark {
+  font-family: 'Inter', 'Roboto', system-ui, sans-serif;
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  color: #fff;
+  text-shadow: 0 0 30px rgba(0, 229, 255, 0.6);
+  opacity: 0;
+  animation: globeFadeIn 0.8s ease 0.8s forwards;
+}
+
+.globe-intro__sub {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: rgba(0, 229, 255, 0.7);
+  text-transform: uppercase;
+  opacity: 0;
+  animation: globeFadeIn 0.8s ease 1.0s forwards;
+}
+
+.globe-intro__progress {
+  width: 220px;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  margin-top: 16px;
+  overflow: hidden;
+  opacity: 0;
+  animation: globeFadeIn 0.4s ease 1.2s forwards;
+}
+
+.globe-intro__progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #00e5ff, #0076ff);
+  border-radius: 2px;
+  /* Animate from 0% to 100% over the total intro duration (~6 seconds) */
+  animation: progressFill 5.5s cubic-bezier(0.4, 0, 0.2, 1) 1.2s forwards;
+}
+
+.globe-intro__status {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: rgba(255, 255, 255, 0.45);
+  opacity: 0;
+  animation: globeFadeIn 0.6s ease 1.5s forwards;
+}
+
+@keyframes globeFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes progressFill {
+  0%   { width: 0%; }
+  30%  { width: 30%; }   /* plateau during globe rotation */
+  70%  { width: 65%; }   /* speeds up during flyTo */
+  100% { width: 100%; }
+}

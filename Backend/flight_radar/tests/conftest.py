@@ -10,7 +10,7 @@ from httpx import AsyncClient, ASGITransport
 # Set required env vars before importing app
 import os
 os.environ.setdefault("SECRET_KEY", "test-secret-key-that-is-at-least-32-chars")
-os.environ.setdefault("OPENWEATHER_API_KEY", "test-api-key")
+os.environ.setdefault("WEATHER_SOURCE", "openmeteo")
 os.environ.setdefault("REDIS_HOST", "localhost")
 
 from app.main import create_app
@@ -36,6 +36,7 @@ def mock_redis() -> RedisClient:
     pipe = MagicMock()
     pipe.delete = MagicMock(return_value=pipe)
     pipe.hset = MagicMock(return_value=pipe)
+    pipe.expire = MagicMock(return_value=pipe)
     pipe.sadd = MagicMock(return_value=pipe)
     pipe.execute = AsyncMock(return_value=[])
     r.pipeline = MagicMock(return_value=pipe)

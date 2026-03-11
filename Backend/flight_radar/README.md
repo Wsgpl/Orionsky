@@ -11,10 +11,28 @@ app/
 ├── schemas/        # Pydantic I/O models
 ├── services/       # Business logic orchestration (Redis ↔ engines)
 ├── engines/        # Pure-logic: conflict detection, movement, advisories
-├── ingestion/      # External API clients: OpenSky/ADSB.lol/ICAO + OpenWeather/AviationWeather
+├── ingestion/      # External API clients: OpenSky/ADSB.lol/ICAO + Open-Meteo/Copernicus
 ├── cache/          # Redis abstraction layer
 ├── middleware/     # Request tracking, rate limiting, exception handling
 └── workers/        # Async background ingestion loops
+```
+
+## Local setup
+
+```bash
+cp .env.example .env
+```
+
+Fill in the real secret values in `.env`, then start the stack:
+
+```bash
+docker-compose up --build
+```
+
+With the API running, call the aircraft endpoint with one of the configured API keys:
+
+```bash
+curl -H "X-API-Key: YOUR_PUBLIC_API_KEY_HERE_12345" http://localhost:8000/api/v1/aircraft
 ```
 
 ## Quick Start
@@ -47,7 +65,7 @@ cp .env.example .env
 # Set SECRET_KEY and weather source credentials in .env
 # Optional for non-demo auth: AUTH_PASSWORD_HASH
 
-docker-compose up -d
+docker-compose up --build -d
 
 # Check logs
 docker-compose logs -f api
@@ -55,6 +73,18 @@ docker-compose logs -f api
 # Health check
 curl http://localhost:8000/health/ready
 ```
+
+The default compose stack is OneDrive-safe: it runs from the official `python:3.12.3-slim` image, bind-mounts the backend into the container, and installs Python dependencies into a named volume on first start. The first `up` can take a minute or two; later restarts reuse the cached virtualenv.
+
+On Windows PowerShell, use:
+
+```powershell
+docker-compose up --build -d
+docker-compose logs -f api
+docker-compose down
+```
+
+If you want to build the real application image from `Dockerfile.local` while the repo is under OneDrive, use the Windows helper below so Docker builds from a normalized temp context outside OneDrive.
 
 ### Production Deployment
 
@@ -73,9 +103,12 @@ export SECRET_KEY=<generated above>
 export AUTH_USERNAME=<admin-username>
 export AUTH_PASSWORD_HASH=<bcrypt-hash>
 export CORS_ALLOWED_ORIGINS=<https://your-frontend-domain>
-export WEATHER_SOURCE=<openweather|aviationweather|icao>
-export OPENWEATHER_API_KEY=<your key if WEATHER_SOURCE=openweather>
-export ICAO_WEATHER_URL=<url if WEATHER_SOURCE=icao>
+export GENERAL_WEATHER_PROVIDER=<openmeteo>
+export AVIATION_WEATHER_PROVIDER=<awc>
+export AIR_QUALITY_PROVIDER=<copernicus_cams>
+export DISASTER_PROVIDER=<copernicus_cems>
+export OPEN_METEO_FORECAST_URL=<optional override>
+export OPEN_METEO_GEOCODING_URL=<optional override>
 export REDIS_HOST=<your redis host>
 export REDIS_PASSWORD=<your redis password>
 
@@ -86,15 +119,26 @@ docker run -d \
   -e AUTH_USERNAME=$AUTH_USERNAME \
   -e AUTH_PASSWORD_HASH=$AUTH_PASSWORD_HASH \
   -e CORS_ALLOWED_ORIGINS=$CORS_ALLOWED_ORIGINS \
-  -e WEATHER_SOURCE=$WEATHER_SOURCE \
-  -e OPENWEATHER_API_KEY=$OPENWEATHER_API_KEY \
-  -e ICAO_WEATHER_URL=$ICAO_WEATHER_URL \
+  -e GENERAL_WEATHER_PROVIDER=$GENERAL_WEATHER_PROVIDER \
+  -e AVIATION_WEATHER_PROVIDER=$AVIATION_WEATHER_PROVIDER \
+  -e AIR_QUALITY_PROVIDER=$AIR_QUALITY_PROVIDER \
+  -e DISASTER_PROVIDER=$DISASTER_PROVIDER \
+  -e OPEN_METEO_FORECAST_URL=$OPEN_METEO_FORECAST_URL \
+  -e OPEN_METEO_GEOCODING_URL=$OPEN_METEO_GEOCODING_URL \
   -e REDIS_HOST=$REDIS_HOST \
   -e REDIS_PASSWORD=$REDIS_PASSWORD \
   -p 8000:8000 \
   --restart unless-stopped \
   flightradar-api:latest
 ```
+
+Windows + OneDrive-safe image build:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/docker-build-local.ps1
+```
+
+Project notes and backend-specific design docs live in `docs/`.
 
 ## Environment Variables
 
@@ -104,11 +148,14 @@ docker run -d \
 | `AUTH_USERNAME` | ✅ | Login username for `/api/v1/auth/token` |
 | `AUTH_PASSWORD_HASH` | ✅ (production) | bcrypt hash for `AUTH_USERNAME` password. Generate via `make auth-hash` |
 | `AIRCRAFT_SOURCES` | | Comma-separated aircraft feeds: `opensky,adsblol,icao` (default: `opensky`) |
-| `WEATHER_SOURCE` | | Weather provider: `openweather` / `aviationweather` / `icao` |
-| `OPENWEATHER_API_KEY` | ✅ when `WEATHER_SOURCE=openweather` | OpenWeatherMap API key from https://openweathermap.org/api |
-| `AVIATIONWEATHER_BASE_URL` | | AviationWeather.gov METAR API URL |
+| `GENERAL_WEATHER_PROVIDER` | | Active general weather provider: `openmeteo` |
+| `AVIATION_WEATHER_PROVIDER` | | Aviation weather provider: `awc` |
+| `AIR_QUALITY_PROVIDER` | | Air-quality provider: `copernicus_cams` |
+| `DISASTER_PROVIDER` | | Disaster-context provider: `copernicus_cems` |
+| `OPEN_METEO_FORECAST_URL` | | Optional Open-Meteo forecast endpoint override |
+| `OPEN_METEO_GEOCODING_URL` | | Optional Open-Meteo geocoding endpoint override |
+| `AWC_BASE_URL` | | NOAA AWC API base URL for METAR / TAF / SIGMET products |
 | `ICAO_AIRCRAFT_URL` | ✅ when `AIRCRAFT_SOURCES` includes `icao` | ICAO aircraft endpoint URL |
-| `ICAO_WEATHER_URL` | ✅ when `WEATHER_SOURCE=icao` | ICAO weather endpoint URL |
 | `ICAO_API_KEY` | | ICAO API bearer token |
 | `CORS_ALLOWED_ORIGINS` | ✅ (production web) | Comma-separated frontend domains allowed by browser CORS |
 | `REDIS_HOST` | | Redis hostname (default: `redis`) |
@@ -124,6 +171,10 @@ docker run -d \
 | `WORKERS` | | Gunicorn worker count (default: `2*CPU+1`) |
 
 See `.env.example` for full list.
+
+Additional backend notes:
+- `docs/DYNAMIC_CONFIG.md` - dynamic config model and seeding flow
+- `docs/REFACTORING_SUMMARY.md` - backend refactor notes
 
 Generate a password hash for production:
 ```bash
@@ -191,7 +242,7 @@ The GitHub Actions pipeline (`.github/workflows/ci.yml`) runs on every push:
 
 ## Circuit Breakers
 
-Both `opensky` and `openweather` ingestion clients are protected by independent circuit breakers.
+Both `opensky` and `openmeteo` ingestion clients are protected by independent circuit breakers.
 Current state is visible at `GET /health/ready`.
 
 | Circuit | Default threshold | Recovery timeout |
@@ -199,6 +250,6 @@ Current state is visible at `GET /health/ready`.
 | OpenSky | 5 failures | 60 seconds |
 | ADSB.lol | 5 failures | 60 seconds |
 | ICAO aircraft | 5 failures | 60 seconds |
-| OpenWeather | 5 failures | 120 seconds |
+| Open-Meteo | 5 failures | 120 seconds |
 | AviationWeather.gov | 5 failures | 120 seconds |
 | ICAO weather | 5 failures | 60 seconds |

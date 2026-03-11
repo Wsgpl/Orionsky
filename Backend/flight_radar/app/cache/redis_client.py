@@ -81,6 +81,9 @@ class RedisClient:
     async def hgetall(self, key: str) -> dict[str, str]:
         return await self._r.hgetall(key)
 
+    async def hdel(self, key: str, *fields: str) -> int:
+        return await self._r.hdel(key, *fields)
+
     # ── Set helpers ────────────────────────────────────────────────
     async def sadd(self, key: str, *members: str) -> int:
         return await self._r.sadd(key, *members)

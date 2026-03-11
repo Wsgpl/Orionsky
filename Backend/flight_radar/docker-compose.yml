@@ -21,14 +21,37 @@ services:
       retries: 5
 
   api:
-    build:
-      context: ./_docker_context
-      dockerfile: Dockerfile.local
-      target: runtime
+    image: python:3.12.3-slim
     restart: unless-stopped
+    working_dir: /app
     env_file: .env
     environment:
       REDIS_HOST: redis
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      PATH: /opt/venv/bin:/usr/local/bin:/usr/bin:/bin
+      VIRTUAL_ENV: /opt/venv
+    volumes:
+      - ./:/app
+      - api_venv:/opt/venv
+      - api_pip_cache:/root/.cache/pip
+    command:
+      - /bin/sh
+      - -lc
+      - |
+          set -e
+          if [ ! -x /opt/venv/bin/python ]; then
+            python -m venv /opt/venv
+          fi
+          REQ_HASH="$$(sha256sum requirements.txt | awk '{print $$1}')"
+          STAMP="/opt/venv/.requirements-sha"
+          if [ ! -f "$$STAMP" ] || [ "$$(cat "$$STAMP")" != "$$REQ_HASH" ]; then
+            /opt/venv/bin/pip install --upgrade pip wheel
+            /opt/venv/bin/pip install -r requirements.txt
+            printf '%s' "$$REQ_HASH" > "$$STAMP"
+          fi
+          exec /opt/venv/bin/gunicorn -c gunicorn.conf.py app.main:app
     ports:
       - "8000:8000"
     depends_on:
@@ -40,8 +63,12 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 180s
 
 volumes:
   redis_data:
+    driver: local
+  api_venv:
+    driver: local
+  api_pip_cache:
     driver: local
